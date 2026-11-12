@@ -11,12 +11,17 @@ import android.hardware.camera2.CameraManager;
 import android.net.Uri;
 import android.opengl.GLSurfaceView;
 import android.os.Bundle;
+import android.os.Build;
+import android.content.res.Configuration;
+import android.graphics.Insets;
+import android.text.TextUtils;
+import android.view.WindowInsets;
 import android.provider.DocumentsContract;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.Button;
-import android.widget.HorizontalScrollView;
+import android.widget.GridLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -33,6 +38,7 @@ public final class MainActivity extends Activity {
     private ScanRenderer render;
     private Session session;
     private TextView info;
+    private GridLayout actionGrid;
     private boolean requestedInstall=false;
     private boolean studio=false, points=true, wire=false, solid=true, cull=false, scanning=true;
     private int level=0, shape=0;
@@ -42,97 +48,166 @@ public final class MainActivity extends Activity {
     private float lastX,lastY;
     private boolean canGlResume=false;
 
+    private int dp(float value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
     @Override public void onCreate(Bundle b) {
         super.onCreate(b);
         getWindow().setStatusBarColor(Color.rgb(12,18,23));
         getWindow().setNavigationBarColor(Color.rgb(12,18,23));
-        LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);
+
+        LinearLayout root=new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.rgb(12,18,23));
-        TextView title=new TextView(this);title.setText("GENIESCAN   •   CLOUD / SMART POLY   v0.1");
-        title.setTextColor(Color.WHITE);title.setTextSize(15);title.setPadding(18,12,10,10);
-        title.setTypeface(null,1);root.addView(title);
-        info=new TextView(this);info.setTextColor(0xffb0ced8);info.setTextSize(12);
-        info.setMinLines(2);info.setPadding(14,4,14,10);
-        info.setText("Avvio ARCore. Muovi lentamente la camera per rilevare la geometria.");
-        root.addView(info);
-        gl=new GLSurfaceView(this); gl.setEGLContextClientVersion(2);
+
+        // Android 15+ enforces edge-to-edge for apps targeting modern SDKs.
+        // Explicit system bar/cutout padding avoids hiding the title and buttons.
+        root.setOnApplyWindowInsetsListener((v,insets)->{
+            int left,top,right,bottom;
+            if(Build.VERSION.SDK_INT>=30){
+                Insets safe=insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                left=safe.left;top=safe.top;right=safe.right;bottom=safe.bottom;
+            } else {
+                left=insets.getSystemWindowInsetLeft();
+                top=insets.getSystemWindowInsetTop();
+                right=insets.getSystemWindowInsetRight();
+                bottom=insets.getSystemWindowInsetBottom();
+            }
+            v.setPadding(left,top,right,bottom);
+            return insets;
+        });
+
+        TextView title=new TextView(this);
+        title.setText("GENIESCAN  •  CLOUD / SMART POLY");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(13);
+        title.setTypeface(null,1);
+        title.setSingleLine(true);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        title.setPadding(dp(9),dp(4),dp(9),dp(2));
+        root.addView(title,new LinearLayout.LayoutParams(-1,dp(25)));
+
+        info=new TextView(this);
+        info.setTextColor(0xffb0ced8);
+        info.setTextSize(10.5f);
+        info.setMinLines(1);
+        info.setMaxLines(2);
+        info.setEllipsize(TextUtils.TruncateAt.END);
+        info.setPadding(dp(9),dp(1),dp(9),dp(3));
+        info.setText("Avvio ARCore • Muovi lentamente la fotocamera");
+        info.setOnClickListener(v->new android.app.AlertDialog.Builder(this)
+            .setTitle("Dettagli scansione")
+            .setMessage(info.getText())
+            .setPositiveButton("OK",null).show());
+        root.addView(info,new LinearLayout.LayoutParams(-1,-2));
+
+        gl=new GLSurfaceView(this);
+        gl.setEGLContextClientVersion(2);
         gl.setPreserveEGLContextOnPause(true);
         render=new ScanRenderer(this);
-        gl.setRenderer(render); gl.setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY);
+        gl.setRenderer(render);
+        gl.setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY);
         root.addView(gl,new LinearLayout.LayoutParams(-1,0,1));
         gl.setOnTouchListener((v,e)->{
-            if(e.getAction()==MotionEvent.ACTION_DOWN){lastX=e.getX();lastY=e.getY();return true;}
+            if(e.getAction()==MotionEvent.ACTION_DOWN){
+                lastX=e.getX();lastY=e.getY();return true;
+            }
             if(e.getAction()==MotionEvent.ACTION_MOVE && studio){
-                float dx=e.getX()-lastX, dy=e.getY()-lastY;
-                gl.queueEvent(()->render.orbit(dx,dy));lastX=e.getX();lastY=e.getY();return true;
+                float dx=e.getX()-lastX,dy=e.getY()-lastY;
+                gl.queueEvent(()->render.orbit(dx,dy));
+                lastX=e.getX();lastY=e.getY();return true;
             }
             if(e.getAction()==MotionEvent.ACTION_UP && !studio){
                 float x=e.getX(),y=e.getY();
-                gl.queueEvent(()->render.focusAt(x,y));
-                return true;
+                gl.queueEvent(()->render.focusAt(x,y));return true;
             }
             return true;
         });
-        LinearLayout actions=new LinearLayout(this);actions.setOrientation(LinearLayout.VERTICAL);
-        root.addView(actions);
-        HorizontalScrollView row1=scroll(actions);LinearLayout b1=(LinearLayout)row1.getChildAt(0);
-        HorizontalScrollView row2=scroll(actions);LinearLayout b2=(LinearLayout)row2.getChildAt(0);
-        add(b1,"SCANSIONE",true,()->{scanning=!scanning;render.scanning=scanning;refresh();});
-        add(b1,"STUDIO",false,()->{studio=!studio;render.studio=studio;refresh();});
-        add(b1,"PUNTI",true,()->{points=!points;render.points=points;refresh();});
-        add(b1,"SOLIDO",true,()->{solid=!solid;render.solid=solid;refresh();});
-        add(b1,"WIRE",false,()->{wire=!wire;render.wire=wire;refresh();});
-        add(b1,"CULL",false,()->{cull=!cull;render.cull=cull;refresh();});
-        add(b2,"FOCUS",false,()->{render.requestFocus();toast("Inquadra e tocca l'oggetto da isolare");});
-        add(b2,"FORMA: "+shapes[shape],false,()->{shape=(shape+1)%shapes.length;rebuild();refresh();});
-        add(b2,"POLY: "+levels[level],false,()->{level=(level+1)%3;rebuild();refresh();});
-        add(b2,"RICOSTRUISCI",false,this::rebuild);
-        add(b2,"FOTO",false,()->{render.requestPhoto();toast("Cattura JPEG: filtro nitidezza attivo");});
-        add(b2,"AUTO FOTO",false,()->{render.autoPhotos=!render.autoPhotos;refresh();});
-        add(b2,"VIOLA",false,()->{
+
+        int columns=getResources().getConfiguration().orientation==Configuration.ORIENTATION_LANDSCAPE?6:4;
+        actionGrid=new GridLayout(this);
+        actionGrid.setColumnCount(columns);
+        actionGrid.setOrientation(GridLayout.HORIZONTAL);
+        actionGrid.setUseDefaultMargins(false);
+        actionGrid.setPadding(dp(3),dp(2),dp(3),dp(4));
+        root.addView(actionGrid,new LinearLayout.LayoutParams(-1,-2));
+
+        add("SCAN",true,()->{scanning=!scanning;render.scanning=scanning;refresh();});
+        add("3D",false,()->{studio=!studio;render.studio=studio;refresh();});
+        add("PUNTI",true,()->{points=!points;render.points=points;refresh();});
+        add("SOLIDO",true,()->{solid=!solid;render.solid=solid;refresh();});
+        add("WIRE",false,()->{wire=!wire;render.wire=wire;refresh();});
+        add("CULL",false,()->{cull=!cull;render.cull=cull;refresh();});
+        add("FOCUS",false,()->{render.requestFocus();toast("Inquadra e tocca l'oggetto");});
+        add("FORMA\n"+shapes[shape],false,()->{shape=(shape+1)%shapes.length;rebuild();refresh();});
+        add("POLY\n"+levels[level],false,()->{level=(level+1)%3;rebuild();refresh();});
+        add("RICOST.",false,this::rebuild);
+        add("FOTO",false,()->{render.requestPhoto();toast("Scatto JPEG con filtro nitidezza");});
+        add("AUTO FOTO",false,()->{render.autoPhotos=!render.autoPhotos;refresh();});
+        add("VIOLA",false,()->{
             render.trimPreview=!render.trimPreview;
-            toast(render.trimPreview?"Punti nel raggio FOCUS evidenziati in viola":"Selezione disattivata");
+            toast(render.trimPreview?"Punti in viola: area selezionata":"Selezione disattivata");
             refresh();
         });
-        add(b2,"ELIMINA",false,()->{gl.queueEvent(()->{
-            int count=render.trimFocused();
-            runOnUiThread(()->toast("Punti eliminati: "+count));
-        });refresh();});
-        add(b2,"OBJ",false,this::export);
-        add(b2,"MODELLO IA",false,this::chooseModel);
-        add(b2,"CAMERE",false,this::showCameras);
-        add(b2,"PULISCI",false,()->{gl.queueEvent(()->render.clear());toast("Nuvola ripulita");});
+        add("ELIMINA",false,()->{
+            gl.queueEvent(()->{
+                int count=render.trimFocused();
+                runOnUiThread(()->toast("Punti eliminati: "+count));
+            });
+            refresh();
+        });
+        add("OBJ",false,this::export);
+        add("IA LOCALE",false,this::chooseModel);
+        add("CAMERE",false,this::showCameras);
+        add("PULISCI",false,()->{
+            gl.queueEvent(()->render.clear());
+            toast("Nuvola ripulita");
+        });
+
         setContentView(root);
+        root.requestApplyInsets();
         refresh();
     }
-    private HorizontalScrollView scroll(LinearLayout parent) {
-        HorizontalScrollView sc=new HorizontalScrollView(this);sc.setFillViewport(false);sc.setHorizontalScrollBarEnabled(false);
-        LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.HORIZONTAL);
-        l.setPadding(4,3,4,3);sc.addView(l);parent.addView(sc);return sc;
-    }
-    private void add(LinearLayout l,String label,boolean selected,Runnable run) {
-        Button b=new Button(this);b.setText(label);b.setTextColor(Color.WHITE);b.setTextSize(10);
-        b.setMinHeight(42);b.setAllCaps(false);b.setTag(label.split(":")[0]);
+
+    private void add(String label,boolean selected,Runnable run) {
+        Button b=new Button(this);
+        b.setText(label);
+        b.setTextColor(Color.WHITE);
+        b.setTextSize(9.5f);
+        b.setAllCaps(false);
+        b.setMaxLines(2);
+        b.setGravity(Gravity.CENTER);
+        b.setPadding(0,0,0,0);
+        b.setMinHeight(0);b.setMinimumHeight(0);
+        b.setMinWidth(0);b.setMinimumWidth(0);
+        b.setTag(label.startsWith("FORMA")?"FORMA":label.startsWith("POLY")?"POLY":label);
         b.setBackgroundTintList(ColorStateList.valueOf(selected?cyan:0xff33444c));
-        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,48);lp.setMargins(3,1,3,1);l.addView(b,lp);
+        GridLayout.LayoutParams lp=new GridLayout.LayoutParams(
+            GridLayout.spec(GridLayout.UNDEFINED),GridLayout.spec(GridLayout.UNDEFINED,1f));
+        lp.width=0;
+        lp.height=dp(39);
+        lp.setMargins(dp(1),dp(1),dp(1),dp(1));
+        actionGrid.addView(b,lp);
         b.setOnClickListener(v->run.run());
     }
+
     private void refresh() {
-        LinearLayout outer=(LinearLayout)((View)gl.getParent());
-        LinearLayout actions=(LinearLayout)outer.getChildAt(outer.getChildCount()-1);
-        for(int i=0;i<actions.getChildCount();i++){
-            LinearLayout row=(LinearLayout)((HorizontalScrollView)actions.getChildAt(i)).getChildAt(0);
-            for(int j=0;j<row.getChildCount();j++){
-                Button b=(Button)row.getChildAt(j);String txt=b.getText().toString();
-                if(txt.startsWith("FORMA:"))b.setText("FORMA: "+shapes[shape]);
-                if(txt.startsWith("POLY:"))b.setText("POLY: "+levels[level]);
-                String label=b.getText().toString();
-                boolean active=(label.equals("SCANSIONE")&&scanning)||(label.equals("STUDIO")&&studio)||
-                    (label.equals("PUNTI")&&points)||(label.equals("WIRE")&&wire)||
-                    (label.equals("SOLIDO")&&solid)||(label.equals("CULL")&&cull)||
-                    (label.equals("AUTO FOTO")&&render.autoPhotos)||(label.equals("VIOLA")&&render.trimPreview);
-                b.setBackgroundTintList(ColorStateList.valueOf(active?cyan:0xff33444c));
-            }
+        if(actionGrid==null)return;
+        for(int i=0;i<actionGrid.getChildCount();i++){
+            Button b=(Button)actionGrid.getChildAt(i);
+            String key=(String)b.getTag();
+            if("FORMA".equals(key)) b.setText("FORMA\n"+shapes[shape]);
+            if("POLY".equals(key)) b.setText("POLY\n"+levels[level]);
+            boolean active=("SCAN".equals(key)&&scanning)||
+                ("3D".equals(key)&&studio)||
+                ("PUNTI".equals(key)&&points)||
+                ("SOLIDO".equals(key)&&solid)||
+                ("WIRE".equals(key)&&wire)||
+                ("CULL".equals(key)&&cull)||
+                ("AUTO FOTO".equals(key)&&render.autoPhotos)||
+                ("VIOLA".equals(key)&&render.trimPreview);
+            b.setBackgroundTintList(ColorStateList.valueOf(active?cyan:0xff33444c));
         }
     }
     private void rebuild() {
