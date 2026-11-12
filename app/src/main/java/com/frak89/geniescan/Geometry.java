@@ -23,6 +23,22 @@ public final class Geometry {
             cells.put(key,new float[]{x,y,z});
             accepted++;
         }
+        public synchronized int removeSphere(float[] center,float rad) {
+            int removed=0;Iterator<Map.Entry<Long,float[]>> it=cells.entrySet().iterator();
+            while(it.hasNext()){float[] p=it.next().getValue();
+                float dx=p[0]-center[0],dy=p[1]-center[1],dz=p[2]-center[2];
+                if(dx*dx+dy*dy+dz*dz<rad*rad){it.remove();removed++;}
+            }
+            return removed;
+        }
+        public synchronized float[] insideSphere(float[] center,float rad){
+            ArrayList<Float> a=new ArrayList<>();
+            for(float[] p:cells.values()) {
+                float dx=p[0]-center[0],dy=p[1]-center[1],dz=p[2]-center[2];
+                if(dx*dx+dy*dy+dz*dz<rad*rad)for(float f:p)a.add(f);
+            }
+            float[] r=new float[a.size()];for(int i=0;i<r.length;i++)r[i]=a.get(i);return r;
+        }
         public synchronized float[] snapshot() {
             float[] out=new float[cells.size()*3]; int i=0;
             for(float[] a:cells.values()) for(int j=0;j<3;j++) out[i++]=a[j];

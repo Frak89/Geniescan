@@ -88,6 +88,16 @@ public final class MainActivity extends Activity {
         add(b2,"POLY: "+levels[level],false,()->{level=(level+1)%3;rebuild();refresh();});
         add(b2,"RICOSTRUISCI",false,this::rebuild);
         add(b2,"FOTO",false,()->{render.requestPhoto();toast("Cattura JPEG: filtro nitidezza attivo");});
+        add(b2,"AUTO FOTO",false,()->{render.autoPhotos=!render.autoPhotos;refresh();});
+        add(b2,"VIOLA",false,()->{
+            render.trimPreview=!render.trimPreview;
+            toast(render.trimPreview?"Punti nel raggio FOCUS evidenziati in viola":"Selezione disattivata");
+            refresh();
+        });
+        add(b2,"ELIMINA",false,()->{gl.queueEvent(()->{
+            int count=render.trimFocused();
+            runOnUiThread(()->toast("Punti eliminati: "+count));
+        });refresh();});
         add(b2,"OBJ",false,this::export);
         add(b2,"MODELLO IA",false,this::chooseModel);
         add(b2,"CAMERE",false,this::showCameras);
@@ -119,7 +129,8 @@ public final class MainActivity extends Activity {
                 String label=b.getText().toString();
                 boolean active=(label.equals("SCANSIONE")&&scanning)||(label.equals("STUDIO")&&studio)||
                     (label.equals("PUNTI")&&points)||(label.equals("WIRE")&&wire)||
-                    (label.equals("SOLIDO")&&solid)||(label.equals("CULL")&&cull);
+                    (label.equals("SOLIDO")&&solid)||(label.equals("CULL")&&cull)||
+                    (label.equals("AUTO FOTO")&&render.autoPhotos)||(label.equals("VIOLA")&&render.trimPreview);
                 b.setBackgroundTintList(ColorStateList.valueOf(active?cyan:0xff33444c));
             }
         }

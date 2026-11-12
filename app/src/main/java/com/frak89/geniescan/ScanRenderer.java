@@ -23,14 +23,17 @@ public final class ScanRenderer implements GLSurfaceView.Renderer {
     private final MainActivity activity;
     private final Geometry.Cloud cloud=new Geometry.Cloud();
     private volatile Session session;
-    public volatile boolean studio=false,scanning=true,points=true,wire=false,solid=true,cull=false;
+    public volatile boolean studio=false,scanning=true,points=true,wire=false,solid=true,cull=false,autoPhotos=false,trimPreview=false;
     private volatile boolean focusNext=false,photoNext=false;
     private volatile float tapX=-1,tapY=-1;
     private boolean focus=false;
     private float[] focusPosition=new float[3];
     private float radius=.65f;
     private int width=1,height=1,tex=0,bgProgram=0,modelProgram=0;
-    private int frames=0,photos=0,rejectedPhotos=0;
+    private int frames=0,photos=0,rejectedPhotos=0,coverageMask=0;
+    private long lastAutoAttempt=0;
+    private float[] lastCapturedPosition;
+
     private long lastDepth=0,lastStatus=0;
     private FloatBuffer cloudBuffer,triangleBuffer,edgeBuffer;
     private int cachedCount=-1;
@@ -50,7 +53,12 @@ public final class ScanRenderer implements GLSurfaceView.Renderer {
     void focusAt(float x,float y){tapX=x;tapY=y;focusNext=true;}
     void requestPhoto(){photoNext=true;}
     void orbit(float dx,float dy){yaw+=dx*.008f;pitch=Math.max(-1.25f,Math.min(1.25f,pitch+dy*.008f));}
-    void clear(){cloud.clear();mesh=null;cachedCount=-1;focus=false;photos=0;}
+    void clear(){cloud.clear();mesh=null;cachedCount=-1;focus=false;photos=0;coverageMask=0;trimPreview=false;lastCapturedPosition=null;}
+    int trimFocused(){
+        if(!focus)return 0;
+        int removed=cloud.removeSphere(focusPosition,radius);
+        cachedCount=-1;trimPreview=false;mesh=null;return removed;
+    }
     void build(String s,int l){
         shape=s;level=l;float[] b=cloud.bounds();
         if(focus){float pad=radius; b=new float[]{focusPosition[0]-pad,focusPosition[1]-pad,focusPosition[2]-pad,
@@ -101,6 +109,22 @@ public final class ScanRenderer implements GLSurfaceView.Renderer {
                 if(focusNext){tryFocus(frame,camera);focusNext=false;}
                 if(scanning)acquire(frame,camera);
                 if(photoNext){photoNext=false;capturePhoto(frame);}
+                if(scanning && autoPhotos && photos<48){
+                    long clock=System.currentTimeMillis();
+                    if(clock-lastAutoAttempt>2600){
+                        float[] cameraPosition=camera.getPose().getTranslation();
+                        float motion=lastCapturedPosition==null?1:dist(cameraPosition,lastCapturedPosition);
+                        if(motion>.16f){
+                            lastAutoAttempt=clock;
+                            if(capturePhoto(frame))lastCapturedPosition=cameraPosition;
+                        }
+                    }
+                }
+                if(focus){
+                    float[] p=camera.getPose().getTranslation();
+                    int sector=(int)Math.floor((Math.atan2(p[2]-focusPosition[2],p[0]-focusPosition[0])+Math.PI)*4/Math.PI);
+                    coverageMask |= (1<<(Math.floorMod(sector,8)));
+                }
                 if(studio) {
                     float cx=centre[0],cy=centre[1],cz=centre[2];
                     float ex=cx+distance*(float)(Math.sin(yaw)*Math.cos(pitch));
@@ -121,7 +145,9 @@ public final class ScanRenderer implements GLSurfaceView.Renderer {
                 Geometry.Mesh m=mesh;
                 String info=(studio?"STUDIO":"CAMERA")+" · Tracking "+camera.getTrackingState()+
                     "\nPunti: "+cloud.size()+" · Foto: "+photos+" (scartate: "+rejectedPhotos+")"+
-                    (focus?" · Focus r="+radius+"m":"")+
+                    (focus?" · Focus r="+radius+"m · angoli "+Integer.bitCount(coverageMask)+"/8":"")+
+                    (trimPreview?" · VIOLA = area da eliminare":"")+
+                    (autoPhotos?" · AUTO FOTO":"")+
                     (m!=null?"\n"+shape+" · Vertici "+m.vertices.size()+" · Tris "+m.faces.size()+" · Quads "+m.quads+" · "+(level==0?"LOW":level==1?"MID":"HIGH"):
                     "\nMuovi il telefono lentamente; tocca per FOCUS.");
                 activity.status(info);
@@ -196,6 +222,10 @@ public final class ScanRenderer implements GLSurfaceView.Renderer {
         int n=cloud.size();
         if(n!=cachedCount||cloudBuffer==null){cachedCount=n;cloudBuffer=buffer(cloud.snapshot());}
         draw(cloudBuffer,n,GLES20.GL_POINTS,new float[]{.25f,.97f,.94f,1},false);
+        if(trimPreview&&focus){
+            float[] selected=cloud.insideSphere(focusPosition,radius);
+            draw(buffer(selected),selected.length/3,GLES20.GL_POINTS,new float[]{.84f,.20f,.98f,1},false);
+        }
     }
     private void drawMesh(){
         if(triangleBuffer==null)triangleBuffer=buffer(mesh.triangles());
@@ -218,7 +248,7 @@ public final class ScanRenderer implements GLSurfaceView.Renderer {
         GLES20.glDrawArrays(mode,0,vertexCount);
         GLES20.glDisableVertexAttribArray(pos);GLES20.glDisable(GLES20.GL_CULL_FACE);
     }
-    private void capturePhoto(Frame frame){
+    private boolean capturePhoto(Frame frame){
         try(Image im=frame.acquireCameraImage()){
             int w=im.getWidth(),h=im.getHeight();
             Image.Plane[] planes=im.getPlanes();ByteBuffer y=planes[0].getBuffer();
@@ -228,7 +258,7 @@ public final class ScanRenderer implements GLSurfaceView.Renderer {
                 int at=yy*stride+xx*pixel;
                 sharpness+=Math.abs((y.get(at)&255)-(y.get(at+pixel*3)&255));n++;
             }
-            if(n==0||sharpness/n<7.0){rejectedPhotos++;return;}
+            if(n==0||sharpness/n<7.0){rejectedPhotos++;return false;}
             byte[] nv21=new byte[w*h*3/2];
             for(int yy=0;yy<h;yy++)for(int xx=0;xx<w;xx++)nv21[yy*w+xx]=y.get(yy*stride+xx*pixel);
             for(int yy=0;yy<h/2;yy++)for(int xx=0;xx<w/2;xx++){
@@ -244,8 +274,12 @@ public final class ScanRenderer implements GLSurfaceView.Renderer {
             try(FileOutputStream stream=new FileOutputStream(out)){
                 new YuvImage(nv21,ImageFormat.NV21,w,h,null).compressToJpeg(new Rect(0,0,w,h),87,stream);
             }
-            photos++;
-        }catch(Exception ignored){rejectedPhotos++;}
+            photos++;return true;
+        }catch(Exception ignored){rejectedPhotos++;return false;}
+    }
+    private float dist(float[] a,float[] b){
+        float x=a[0]-b[0],y=a[1]-b[1],z=a[2]-b[2];
+        return (float)Math.sqrt(x*x+y*y+z*z);
     }
     private FloatBuffer buffer(float[] f){
         ByteBuffer b=ByteBuffer.allocateDirect(f.length*4).order(ByteOrder.nativeOrder());
