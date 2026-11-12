@@ -146,6 +146,18 @@ public final class MainActivity extends Activity {
         startActivityForResult(in,SAVE_REQUEST);
     }
     private void chooseModel() {
+        ModelFile.Descriptor old=null;
+        try { old=ModelFile.selected(this); }catch(Exception ignored){}
+        if(old!=null) {
+            new android.app.AlertDialog.Builder(this)
+                .setTitle("Modello IA già selezionato")
+                .setMessage(old.summary()+"\n\nVuoi cambiare file?")
+                .setNegativeButton("MANTIENI",null)
+                .setPositiveButton("CAMBIA",(dialog,which)->openModelPicker())
+                .show();
+        } else openModelPicker();
+    }
+    private void openModelPicker() {
         Intent in=new Intent(Intent.ACTION_OPEN_DOCUMENT);in.setType("*/*");
         in.addCategory(Intent.CATEGORY_OPENABLE);
         in.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
@@ -168,9 +180,11 @@ public final class MainActivity extends Activity {
             });
         } else if(req==MODEL_REQUEST) {
             try{
-                getContentResolver().takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                getPreferences(0).edit().putString("modelUri",uri.toString()).apply();
-                toast("Modello scelto. Inferenza non ancora implementata: nessuna analisi IA simulata.");
+                ModelFile.Descriptor model=ModelFile.choose(this,uri,data);
+                new android.app.AlertDialog.Builder(this)
+                    .setTitle("Modello IA locale")
+                    .setMessage(model.summary()+"\n\nFile esterno preservato. L'inferenza non è ancora integrata.")
+                    .setPositiveButton("OK",null).show();
             }catch(Exception e){toast("Modello non disponibile: "+e.getMessage());}
         }
     }
