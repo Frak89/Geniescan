@@ -22,15 +22,15 @@ Le funzionalità future (non disponibili in v0.1.0): AI on-device per riconoscim
 
 ## Compilazione
 Requisiti: JDK 17+, Android SDK Platform 36, Gradle 8.11.1, connessione durante il build per dipendenze Android/ARCore. 
-\`\`\`bash
+```bash
 gradle --no-daemon :app:assembleDebug
-\`\`\`
-APK debug in \`app/build/outputs/apk/debug/app-debug.apk\`. Il workflow GitHub Actions compila automaticamente e pubblica un artifact ZIP contenente l'APK.
+```
+APK debug in `app/build/outputs/apk/debug/app-debug.apk`. Il workflow GitHub Actions compila automaticamente e pubblica un artifact ZIP contenente l'APK.
 
 **Versioni**: compileSdk 36, targetSdk 36, minSdk 29 (Android 10+); funziona su Android 17 (API 37) con compatibilità API 36. ARCore 1.56.0.
 
 ## Uso
-Consenti fotocamera e Google Play Services per AR. Scansiona lentamente muovendo il telefono, evitando oggetti in movimento. Premi STUDIO per ispezionare; FOCUS per restringere le nuove acquisizioni; forma BOX/TAVOLO/CILINDRO/VASO per ricavare un solido parametrico dal volume acquisito. Tocca ESPORTA per salvare OBJ. La modalità LOW/MID/HIGH modifica solo i segmenti delle forme curve, non ricostruisce un nuovo dettaglio geometrico inesistente.
+Consenti fotocamera e Google Play Services per AR. Scansiona lentamente muovendo il telefono, evitando oggetti in movimento. Premi STUDIO per ispezionare; FOCUS per restringere le nuove acquisizioni; forma BOX/TAVOLO/CILINDRO/VASO per ricavare un solido parametrico dal volume acquisito. Tocca ESPORTA per salvare OBJ. La modalità LOW/MID/HIGH modifica i segmenti delle forme curve; non inventa dettagli non misurati. AUTO FOTO salva in cache gli scatti nitidi da pose sufficientemente diverse.
 
 ## Privacy
 Nessun server per le immagini né telemetria dedicata nel codice di GenieScan. ARCore può avere i propri componenti e requisiti di servizio Google. Tutti i modelli utente rimangono nel percorso selezionato.
